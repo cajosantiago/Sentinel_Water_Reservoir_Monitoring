@@ -1,0 +1,28 @@
+# Python Caches & Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Large files and datasets
+data/
+generated_data/
+old_files/
+*.npy
+*.npz
+*.tif
+*.tiff
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.avi
+
+# System/IDE configs (if initializing directly in the home directory)
+.*
+!/.gitignore
+!/.github/
