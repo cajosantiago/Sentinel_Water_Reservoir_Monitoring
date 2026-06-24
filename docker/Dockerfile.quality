@@ -1,0 +1,57 @@
+# ------------------------------------------------------------------
+#  Docker image to run the `water_quality.py` pipeline.
+#
+#  * The image is based on python:3.11-slim (minimal, Debian-based).
+#  * Runs as a non-root user (UID 10001) for container security.
+#  * Expected volume mounts:
+#        /data/input           - Sentinel-2 TIFF scenes
+#        /data/output          - Generated MAGO quality index images
+#        /app/generated_data   - Optional: DEM data (SAM.npy/DEM.npy files)
+#
+#  Build example (run from the repository root):
+#        docker build -t water-quality -f docker/Dockerfile.quality .
+#
+#  Run example (using local directories):
+#        docker run --rm \
+#          -v $(pwd)/data/sentinelhub/Bandas/Montargil:/data/input \
+#          -v $(pwd)/generated_data/quality/Montargil:/data/output \
+#          -v $(pwd)/generated_data:/app/generated_data \
+#          water-quality "2023-04-01_2023-04-15" --albufeira "Montargil" --use-dem True
+# ------------------------------------------------------------------
+
+# Use a slim, stable Python base image
+FROM python:3.11-slim
+
+# Prevent Python from writing .pyc files and buffer streams for real-time logging
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Set the working directory
+WORKDIR /app
+
+# Create a non-root user and group for security
+RUN groupadd -g 10001 appgroup && \
+    useradd -u 10001 -g appgroup -m -s /bin/bash appuser
+
+# Install Python dependencies (headless OpenCV and Matplotlib are required for quality indices)
+RUN pip install --no-cache-dir \
+    numpy \
+    scipy \
+    pillow \
+    scikit-image \
+    pandas \
+    tifffile \
+    matplotlib \
+    opencv-python-headless
+
+# Copy scripts (water_quality.py imports from water_segmentation and estimate_elevation)
+COPY --chown=appuser:appgroup water_quality.py water_segmentation.py estimate_elevation.py ./
+
+# Switch to the non-root user
+USER appuser
+
+# Define default entrypoint to run the water quality script
+ENTRYPOINT ["python", "water_quality.py"]
+
+# Default command parameters (requires positional date_range, to be overridden at runtime)
+CMD ["--input-dir", "/data/input", "--output-dir", "/data/output"]

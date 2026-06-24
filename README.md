@@ -125,7 +125,11 @@ python water_quality.py \
 
 ## Running inside Docker
 
-The water segmentation pipeline is containerized for easy deployment. Run the build from the repository root:
+Both pipelines (water segmentation and water quality) are containerized for easy deployment.
+
+### 1. Water Segmentation Container
+
+Build and run the segmentation pipeline (`water_segmentation.py`):
 
 ```bash
 # Build the Docker image
@@ -138,4 +142,20 @@ docker run --rm \
   -v $(pwd)/generated_data:/app/generated_data \
   -v $(pwd)/data:/app/data \
   water-segmentation --albufeira "Montargil" --use-dem True
+```
+
+### 2. Water Quality Container
+
+Build and run the water quality pipeline (`water_quality.py`):
+
+```bash
+# Build the Docker image
+docker build -t water-quality -f docker/Dockerfile.quality .
+
+# Run the container
+docker run --rm \
+  -v $(pwd)/data/sentinelhub/Bandas/Montargil:/data/input \
+  -v $(pwd)/generated_data/quality/Montargil:/data/output \
+  -v $(pwd)/generated_data:/app/generated_data \
+  water-quality "2023-04-01_2023-04-15" --albufeira "Montargil" --use-dem True --save-masks
 ```
