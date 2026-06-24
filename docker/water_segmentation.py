@@ -52,19 +52,13 @@ def main():
         help="Chose name of albufeira"
     )
     parser.add_argument(
-        "--use-dem",
-        type=bool,
-        default=False,
-        help="Use DEM to improve segmentation"
-    )
-    parser.add_argument(
         "--input-dir",
-        default=None,
+        default="/home/csantiago/data/sentinelhub/Bandas/Maranhão",
         help="Input folder with bands TIFF files"
     )
     parser.add_argument(
         "--output-dir",
-        default=None,
+        default="/home/csantiago/generated_data/segmentation_masks/Maranhão/ndwi+dem_teste",
         help="Output folder for saving masks and previews"
     )
     parser.add_argument(
@@ -85,20 +79,8 @@ def main():
         default=False,
         help="Apply a 3-point rolling median filter to remove transient outliers (e.g. single overpass segmentation errors)"
     )
-    parser.add_argument(
-        "--save-csv",
-        type=bool,
-        default=False,
-        help="Save elevation data to CSV file"
-    )
     
     args = parser.parse_args()
-
-    if args.input_dir is None:
-        args.input_dir = f"/home/csantiago/data/sentinelhub/Bandas/{args.albufeira}"
-    
-    if args.output_dir is None:
-        args.output_dir = f"/home/csantiago/generated_data/segmentation_masks/{args.albufeira}/ndwi{'+DEM' if args.use_dem else ''}"
     
     os.makedirs(args.output_dir, exist_ok=True)
     
@@ -162,7 +144,7 @@ def main():
         print(f"[{idx}/{len(filtered_scenes)}] Processing {s['date']} ({s['filename']})...")
         
         # NDWI segmentation
-        ndwi_mask, _, result = segment_image(s['tif_path'], albufeira=args.albufeira, use_DEM=args.use_dem)
+        ndwi_mask, _, result = segment_image(s['tif_path'], albufeira=args.albufeira, use_DEM=True)
         elevation.append((s['date'], result['elevation']))
 
         # Save mask
@@ -175,8 +157,6 @@ def main():
     print("="*80 + "\n")
 
     # save cota do csv
-    # create output folder
-    os.makedirs("data/excel/{}/".format(args.albufeira), exist_ok=True)
     df_p = pd.DataFrame(elevation, columns=["date", "elevation"])
 
     if args.filter and len(df_p) > 3:
@@ -189,10 +169,9 @@ def main():
         if len(df_p) > 1:
             df_p.loc[df_p.index[-1], 'elevation'] = df_p['elevation'].iloc[-1]
 
-    if args.save_csv:
-        # Save csv timeseries
-        df_p.to_csv("data/excel/{}/predicted_elevation.csv".format(args.albufeira), index=False)
-        print("  → Saved elevation data to: data/excel/{}/predicted_elevation.csv".format(args.albufeira))
+    # Save csv timeseries
+    df_p.to_csv(os.path.join(args.output_dir, "predicted_elevation.csv"), index=False)
+    print("  → Saved elevation data to: {}".format(os.path.join(args.output_dir, "predicted_elevation.csv")))
 
 if __name__ == "__main__":
     main()

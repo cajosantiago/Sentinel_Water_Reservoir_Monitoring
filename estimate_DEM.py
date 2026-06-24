@@ -1,12 +1,16 @@
 import numpy as np
-import cv2 as cv
 import matplotlib.pyplot as plt
-from matplotlib.colors import rgb_to_hsv
 import os
 import glob
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
+from PIL import Image
+from skimage.measure import find_contours
+import unicodedata
+import argparse
+
+from estimate_elevation import segment_image, extract_border_pixels
 
 import torch
 import torch.optim as optim
@@ -160,35 +164,6 @@ def reconstruct_terrain(
     Z_np = Z.detach().cpu().numpy()
     return Z_np, loss_history
 
-def process_mask(mask_path):
-    """
-    Load a water segmentation mask and return:
-        binary   – (H, W) int32 mask (1 = water, 0 = land)
-        border   – (N, 2) int32 array of coordinates [row, col] along the boundary
-    """
-    mask = cv.imread(mask_path, cv.IMREAD_GRAYSCALE)
-    if mask is None:
-        raise FileNotFoundError(f"Could not load mask at {mask_path}")
-
-    # binary mask (1 for water, 0 for land)
-    binary = (mask > 127).astype(np.int32)
-
-    # To find contours, we need a uint8 mask of 0/255
-    contours, _ = cv.findContours((binary * 255).astype(np.uint8), cv.RETR_EXTERNAL, cv.CHAIN_APPROX_TC89_L1)
-
-    if not contours:
-        return binary, np.empty((0, 2), dtype=np.int32)
-
-    # Use the largest contour
-    largest_contour = max(contours, key=cv.contourArea)
-    pts = largest_contour.squeeze()
-    if pts.ndim == 1:
-        pts = pts[np.newaxis, :]
-
-    # cv2 contours are in [col, row] -> swap to [row, col] / [y, x]
-    border_pixels = pts[:, [1, 0]].astype(np.int32)
-    return binary, border_pixels
-
 def to_dt(s):
     if isinstance(s, datetime):
         return s
@@ -198,18 +173,110 @@ def to_dt(s):
     return datetime.strptime(s[:10], "%Y-%m-%d")
 
 # ── Main Script Entry ─────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    input_folder = "data/segmentation_masks"
+def sanitize_name(name):
+    # Normalize unicode to remove accents (e.g. Maranhão -> Maranhao)
+    return "".join(c for c in unicodedata.normalize('NFD', name) if unicodedata.category(c) != 'Mn')
 
-    # get masks filenames from input_folder
+def main():
+    parser = argparse.ArgumentParser(
+        description="Reconstruct dense Digital Elevation Model (DEM) from shoreline contours.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "--albufeira",
+        default="Maranhão",
+        help="Name of the albufeira (reservoir)"
+    )
+    parser.add_argument(
+        "--mask-dir",
+        default=None,
+        help="Input directory containing segmentation mask PNG files (defaults to generated_data/segmentation_masks/{albufeira}/ndwi)"
+    )
+    parser.add_argument(
+        "--excel-file",
+        default=None,
+        help="Path to the CSV file containing historical water level data (defaults to data/excel/cota_{albufeira}.csv)"
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Output directory to save the reconstructed DEM, SAM and plots (defaults to generated_data/DEM/{albufeira})"
+    )
+    parser.add_argument(
+        "--lambda-tv",
+        type=float,
+        default=5.0,
+        help="Lambda coefficient for Total Variation regularization"
+    )
+    parser.add_argument(
+        "--iters",
+        type=int,
+        default=3000,
+        help="Number of optimization iterations"
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=0.5,
+        help="Learning rate for Adam optimizer"
+    )
+    args = parser.parse_args()
+
+    # Set up default paths if not provided
+    albufeira = args.albufeira
+    sanitized_albufeira = sanitize_name(albufeira)
+    
+    mask_dir = args.mask_dir
+    if mask_dir is None:
+        mask_dir = f"generated_data/segmentation_masks/{albufeira}/ndwi"
+        
+    excel_file = args.excel_file
+    if excel_file is None:
+        # excel_file = f"data/excel/Albufeiras{sanitized_albufeira}_18-07-2025.xlsx"
+        excel_file = f"data/excel/cota_{albufeira}.csv"
+        
+    output_dir = args.output_dir
+    if output_dir is None:
+        output_dir = f"generated_data/DEM/{albufeira}"
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    print("\n" + "="*80)
+    print("  DEM RECONSTRUCTION PIPELINE")
+    print("="*80)
+    print(f"  Albufeira       : {albufeira}")
+    print(f"  Masks Directory : {mask_dir}")
+    print(f"  Excel File      : {excel_file}")
+    print(f"  Output Directory: {output_dir}")
+    print("="*80 + "\n")
+
+    # get masks filenames from mask_dir
+    if not os.path.exists(mask_dir):
+        print(f"[ERROR] Masks directory does not exist: {mask_dir}")
+        return
+
     mask_paths = sorted(
         str(mask_file)
-        for mask_file in Path(input_folder).glob("*.png")
+        for mask_file in Path(mask_dir).glob("*.png")
     )
-    print(f"Found {len(mask_paths)} mask files in {input_folder}.")
+    print(f"Found {len(mask_paths)} mask files in {mask_dir}.")
 
-    df_excel = pd.read_excel('data/excel/AlbufeirasMaranhao_18-07-2025.xlsx')
-    print(f"Loaded Excel file with {len(df_excel)} rows.")
+    if not os.path.exists(excel_file):
+        print(f"[ERROR] Excel file does not exist: {excel_file}")
+        return
+
+    # Load file (Excel or CSV)
+    if str(excel_file).lower().endswith(('.xlsx', '.xls')):
+        df_excel = pd.read_excel(excel_file)
+    else:
+        try:
+            df_excel = pd.read_csv(excel_file)
+            if len(df_excel.columns) == 1 and ';' in str(df_excel.columns[0]):
+                df_excel = pd.read_csv(excel_file, sep=';')
+        except Exception as e:
+            print(f"[ERROR] Failed to read CSV file {excel_file}: {e}")
+            return
+    print(f"Loaded data file with {len(df_excel)} rows.")
 
     # Parse metadata from mask file names
     results = []
@@ -231,12 +298,40 @@ if __name__ == "__main__":
     df_images = pd.DataFrame(results, columns=["path", "date", "cloud"])
     print(f"Using {len(df_images)} mask files after discarding years 2025 and 2026.")
 
+    if len(df_images) == 0:
+        print("[ERROR] No valid mask files left after filter. Exiting.")
+        return
+
     path_img = df_images["path"]
     date_img = df_images["date"]
     cloud_values = df_images["cloud"]
 
-    date_excel = df_excel["Data"][1:].tolist()
-    height_excel = df_excel["Cota(m)"][1:].tolist()
+    # Find the date column
+    date_col = None
+    for col in df_excel.columns:
+        col_lower = str(col).lower()
+        if col_lower in ['data', 'date']:
+            date_col = col
+            break
+            
+    # Find the cota/height column
+    cota_col = None
+    for col in df_excel.columns:
+        col_lower = str(col).lower()
+        if 'cota' in col_lower or 'height' in col_lower or 'elevation' in col_lower:
+            cota_col = col
+            break
+            
+    if date_col is None or cota_col is None:
+        print(f"[ERROR] Could not find date or cota columns in {excel_file}.")
+        print(f"Available columns: {list(df_excel.columns)}")
+        return
+
+    # Clean the dataframe (drop NaNs in the relevant columns)
+    df_excel_clean = df_excel.dropna(subset=[date_col, cota_col])
+    
+    date_excel = df_excel_clean[date_col].tolist()
+    height_excel = df_excel_clean[cota_col].tolist()
 
     # relate the quota with the date
     result_list = []
@@ -260,23 +355,37 @@ if __name__ == "__main__":
     result_array = np.array(result_list, dtype=object)
     print(f"Successfully matched {len(result_array)} masks with historical water levels.")
 
+    if len(result_array) == 0:
+        print("[ERROR] No matched masks found. Exiting.")
+        return
+
     # compute accumulation map and extract border-pixel observations
     all_border_pixels = []
     accumulation = 0
     
     for path, quota, cloud in result_array:
-        binary, border_pixels = process_mask(path)
-        accumulation += binary
+        # load ndwi segmentation mask as binary image with ImageMagick
+        ndwi_mask = np.array(Image.open(path))
+        ndwi_mask = ndwi_mask > 0
+        accumulation += ndwi_mask
+        
+        # extract border pixels
+        border_xs_list, border_ys_list = extract_border_pixels(ndwi_mask)
 
-        if len(border_pixels) == 0:
+        if len(border_xs_list) == 0:
             continue
 
-        y = border_pixels[:, 0]
-        x = border_pixels[:, 1]
+        border_xs = np.concatenate(border_xs_list)
+        border_ys = np.concatenate(border_ys_list)
+
+        # remove non integer coordinates
+        y = border_ys.astype(int)
+        x = border_xs.astype(int)
 
         # Build final array directly
-        pixels_with_quota = np.empty((len(border_pixels), 4), dtype=np.float64)
-        pixels_with_quota[:, 0:2] = border_pixels
+        pixels_with_quota = np.empty((len(border_xs), 4), dtype=np.float64)
+        pixels_with_quota[:, 0] = y
+        pixels_with_quota[:, 1] = x
         pixels_with_quota[:, 2] = quota
         pixels_with_quota[:, 3] = accumulation[y, x]
 
@@ -304,17 +413,22 @@ if __name__ == "__main__":
         border_xs=border_xs,
         border_heights=border_heights,
         accumulation=accumulation,
-        lambda_tv=5.0,
-        n_iters=3000,
-        lr=0.5,
+        lambda_tv=args.lambda_tv,
+        n_iters=args.iters,
+        lr=args.lr,
         verbose=True,
         log_interval=500,
     )
 
-    np.save("DEM", DEM)
-    print("Reconstructed DEM saved to DEM.npy.")
-    np.save("SAM", accumulation)
-    print("Accumulation map saved to SAM.npy.")
+    # remove outside pixels
+    DEM[accumulation == 0] = DEM.max() + 1
+
+    dem_path = os.path.join(output_dir, "DEM.npy")
+    sam_path = os.path.join(output_dir, "SAM.npy")
+    np.save(dem_path, DEM)
+    print(f"Reconstructed DEM saved to {dem_path}.")
+    np.save(sam_path, accumulation)
+    print(f"Accumulation map saved to {sam_path}.")
 
     # ── Visualisation and Plot Saving ─────────────────────────────────────
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
@@ -344,8 +458,9 @@ if __name__ == "__main__":
     plt.colorbar(im2, ax=axes[2], label="Count")
 
     plt.tight_layout()
-    plt.savefig("reconstruction_results.png", dpi=150)
-    print("Reconstruction visualisations saved to reconstruction_results.png.")
+    results_plot_path = os.path.join(output_dir, "reconstruction_results.png")
+    plt.savefig(results_plot_path, dpi=150)
+    print(f"Reconstruction visualisations saved to {results_plot_path}.")
     plt.show()
 
     # ── Convergence curve ─────────────────────────────────────────────────
@@ -364,6 +479,10 @@ if __name__ == "__main__":
     ax.legend()
     ax.grid(True)
     plt.tight_layout()
-    plt.savefig("convergence_curve.png", dpi=150)
-    print("Convergence curve saved to convergence_curve.png.")
+    curve_plot_path = os.path.join(output_dir, "convergence_curve.png")
+    plt.savefig(curve_plot_path, dpi=150)
+    print(f"Convergence curve saved to {curve_plot_path}.")
     plt.show()
+
+if __name__ == "__main__":
+    main()

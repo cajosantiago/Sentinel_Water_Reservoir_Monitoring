@@ -5,15 +5,48 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from datetime import datetime
+import argparse
 
 def main():
+    parser = argparse.ArgumentParser(description="Plot elevation comparisons for a specific albufeira.")
+    parser.add_argument(
+        "-a", "--albufeira",
+        default="Maranhão",
+        help="Name of the albufeira (reservoir/dam) to plot (default: 'Maranhão')."
+    )
+    parser.add_argument(
+        "--start-date",
+        default="2025-01-01",
+        help="Start date for comparison (YYYY-MM-DD, default: '2025-01-01')."
+    )
+    parser.add_argument(
+        "--end-date",
+        default="2026-12-31",
+        help="End date for comparison (YYYY-MM-DD, default: '2026-12-31')."
+    )
+    args = parser.parse_args()
+    albufeira = args.albufeira
+    start_date = args.start_date
+    end_date = args.end_date
+
+    try:
+        start_year = datetime.strptime(start_date, "%Y-%m-%d").year
+        end_year = datetime.strptime(end_date, "%Y-%m-%d").year
+    except ValueError:
+        start_year = start_date[:4]
+        end_year = end_date[:4]
+
     print("=" * 70)
+    print(f"  ALBUFEIRA ELEVATION COMPARISON PLOT")
+    print(f"  Albufeira: {albufeira}")
+    print("=" * 70 + "\n")
+
     # Load files
-    p_path = 'data/excel/predicted_elevation.csv'
-    a_path = 'data/excel/cota_maranhao.csv'
+    p_path = f'data/excel/{albufeira}/predicted_elevation.csv'
+    a_path = f'data/excel/cota_{albufeira}.csv'
     
     if not os.path.exists(p_path) or not os.path.exists(a_path):
-        print("[ERROR] CSV files not found!")
+        print(f"[ERROR] CSV files not found!\n  Predicted path: {p_path}\n  Actual path: {a_path}")
         return
 
     df_p = pd.read_csv(p_path)
@@ -23,9 +56,7 @@ def main():
     df_p['date'] = pd.to_datetime(df_p['date'])
     df_a['date'] = pd.to_datetime(df_a['date'])
 
-    # Filter to 2021-2022 range and exclude obvious database outliers (e.g. cota > 150m)
-    start_date = '2021-01-01'
-    end_date = '2022-12-31'
+    # Filter to specific date range and exclude obvious database outliers (e.g. cota > 150m)
     df_p_filtered = df_p[(df_p['date'] >= start_date) & (df_p['date'] <= end_date)].copy()
     df_a_filtered = df_a[(df_a['date'] >= start_date) & (df_a['date'] <= end_date) & (df_a['cota'] <= 150)].copy()
 
@@ -70,8 +101,11 @@ def main():
 
     df_matched = pd.DataFrame(matched_records)
     
+    # Ensure output directory exists
+    os.makedirs(f'data/excel/{albufeira}', exist_ok=True)
+
     # Save the merged/matched data to CSV
-    out_csv = 'data/excel/elevation_comparison_2021_2022.csv'
+    out_csv = f'data/excel/{albufeira}/elevation_comparison_{start_year}_{end_year}.csv'
     df_matched.to_csv(out_csv, index=False)
     print(f"Saved matched dataset to: {out_csv}")
 
@@ -103,15 +137,10 @@ def main():
     ax.plot(
         df_a_filtered['date'], df_a_filtered['cota'],
         color="#2b6cb0", linewidth=3, alpha=0.85,
-        label="Actual Elevation (cota_maranhao.csv)", zorder=1
+        label=f"Actual Elevation (cota_{albufeira}.csv)", zorder=1
     )
     
-    # Plot RAW Predicted Elevation as faint semi-transparent scatter points
-    ax.scatter(
-        df_p_filtered['date'], df_p_filtered['elevation_raw'],
-        color="#cbd5e0", edgecolors="#a0aec0", linewidths=1.0,
-        s=30, alpha=0.4, label="Raw Predictions (with outliers)", zorder=2
-    )
+    # (Unfiltered curve removed from the plot per request)
 
     # Plot FILTERED Predicted Elevation as scatter points and dashed line
     ax.plot(
@@ -128,7 +157,7 @@ def main():
     # Annotate summary metrics on the plot inside a clean box
     if not df_matched.empty:
         textstr = '\n'.join((
-            r'$\mathbf{Median-Filtered\ Stats\ (2021-2022)}$',
+            fr'$\mathbf{{Median-Filtered\ Stats\ ({start_year}-{end_year})}}$',
             f'Matched Observations: {len(df_matched)}',
             f'Mean Bias: {mean_bias:+.2f} m',
             f'MAE: {mae:.2f} m',
@@ -139,7 +168,7 @@ def main():
                 verticalalignment='bottom', bbox=props, color="#2d3748")
 
     # Title & Labels
-    ax.set_title("Maranhão Reservoir Water Elevation: Actual vs. Predicted (2021 - 2022)", fontsize=16, fontweight="bold", pad=20, color="#1a202c")
+    ax.set_title(f"{albufeira} Reservoir Water Elevation: Actual vs. Predicted ({start_year} - {end_year})", fontsize=16, fontweight="bold", pad=20, color="#1a202c")
     ax.set_xlabel("Date", fontsize=12, fontweight="semibold", labelpad=12, color="#2d3748")
     ax.set_ylabel("Elevation (meters)", fontsize=12, fontweight="semibold", labelpad=12, color="#2d3748")
     
@@ -155,7 +184,7 @@ def main():
     ax.legend(loc="upper right", frameon=True, facecolor="white", edgecolor="#e2e8f0", fontsize=10.5, shadow=False)
     
     # Save the visualization plot
-    out_plot = 'data/excel/elevation_comparison_2021_2022.png'
+    out_plot = f'data/excel/{albufeira}/elevation_comparison_{start_year}_{end_year}.png'
     plt.tight_layout()
     plt.savefig(out_plot, dpi=300)
     print(f"Successfully saved time series comparison plot to: {out_plot}")
