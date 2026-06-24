@@ -52,7 +52,7 @@ python download_sentinel_data.py \
 ---
 
 ### Step 2: Extract Historical Elevation Data
-Extract and format daily water levels ("cota") for the target albufeira from the database Excel file (`data/excel/Historico_2005_2025_V15NOV2025.xlsx`) using `utils/extract_cota_csv.py`.
+Extract and format daily water levels ("cota") for the target albufeira from the database Excel file (e.g., `data/excel/Historico_2005_2025_V15NOV2025.xlsx`, which can be downloaded from the [DGADR Portal](https://sir.dgadr.gov.pt/destaques?view=category&id=16)) using `utils/extract_cota_csv.py`.
 
 **Command Example:**
 ```bash
