@@ -13,9 +13,8 @@ sam3/
 data/
 generated_data/quality
 generated_data/segmentation_masks
+generated_data/DEM_backup
 old_files/
-*.npy
-*.npz
 *.tif
 *.tiff
 *.png
