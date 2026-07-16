@@ -26,7 +26,7 @@ def reconstruct_terrain(
     border_ys, border_xs, border_heights,
     accumulation,
     lambda_tv=5.0,
-    n_iters=3000,
+    n_iters=2000,
     lr=0.5,
     device=None,
     verbose=True,
@@ -100,7 +100,10 @@ def reconstruct_terrain(
     # ── Set up hard constraints tensors ───────────────────────────────
     accum_tensor = torch.tensor(accumulation, dtype=torch.float32, device=device)
     zero_accum_mask = (accum_tensor == 0.0)
-    max_accum_mask = (accum_tensor == accum_tensor.max())
+    #max_accum_mask = (accum_tensor > .95*accum_tensor.max())
+    threshold = torch.quantile(accum_tensor[accum_tensor > 0], q=0.9)
+    print(threshold)
+    max_accum_mask = (accum_tensor > threshold)
 
     print(f"Hard constraints: zero accumulation = {max_elevation:.2f} m ({torch.sum(zero_accum_mask).item():,} px)")
     print(f"                 max accumulation  = {min_elevation:.2f} m ({torch.sum(max_accum_mask).item():,} px)")
@@ -211,7 +214,7 @@ def main():
     parser.add_argument(
         "--iters",
         type=int,
-        default=3000,
+        default=2000,
         help="Number of optimization iterations"
     )
     parser.add_argument(
@@ -301,6 +304,16 @@ def main():
     if len(df_images) == 0:
         print("[ERROR] No valid mask files left after filter. Exiting.")
         return
+        # # cycle through all tiff files in data/sentinel2/Bandas/{albufeira}/
+        # for tiff_path in Path(f"data/sentinel2/Bandas/{albufeira}").glob("*.tif"):
+        #     # segment image
+        #     ndwi_mask, _, result = segment_image(tiff_path, albufeira=args.albufeira, use_DEM=False)
+        #     #save mask
+        #     Image.fromarray((ndwi_mask * 255).astype(np.uint8)).save(os.path.join(output_dir, tiff_path.name + ".png"))
+        #     #add path to df_images
+
+
+                
 
     path_img = df_images["path"]
     date_img = df_images["date"]

@@ -6,7 +6,7 @@ import json
 import numpy as np
 import tifffile
 from PIL import Image
-from estimate_elevation import segment_image
+from estimate_elevation import segment_image, estimate_elevation_from_image
 import pandas as pd
 
 # Filename pattern: 20230404T113025Z_cc0.2pct_bands.tif
@@ -70,7 +70,7 @@ def main():
     parser.add_argument(
         "--cloud-threshold",
         type=float,
-        default=20.0,
+        default=10.0,
         help="Maximum cloud coverage percentage allowed"
     )
     parser.add_argument(
@@ -156,13 +156,20 @@ def main():
         print("No scenes remaining after cloud filtering. Exiting.")
         sys.exit(0)
         
+    
+    # load DEM
+    if args.use_dem:
+        DEM = np.load("generated_data/DEM/{}/DEM.npy".format(args.albufeira))
+
     elevation = []
     # 4. Process each scene
     for idx, s in enumerate(filtered_scenes, 1):
         print(f"[{idx}/{len(filtered_scenes)}] Processing {s['date']} ({s['filename']})...")
         
         # NDWI segmentation
-        ndwi_mask, _, result = segment_image(s['tif_path'], albufeira=args.albufeira, use_DEM=args.use_dem)
+        #ndwi_mask, _, result = segment_image(s['tif_path'], albufeira=args.albufeira, use_DEM=args.use_dem)
+        result = estimate_elevation_from_image(s['tif_path'], DEM, return_details=True)
+        ndwi_mask = DEM <= result['elevation']
         elevation.append((s['date'], result['elevation']))
 
         # Save mask

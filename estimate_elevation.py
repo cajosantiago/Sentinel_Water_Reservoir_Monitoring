@@ -115,6 +115,8 @@ def segment_image(filename, use_DEM=False, min_area=2000, albufeira="Maranhão")
         result = {}
         result['elevation'] = 0
 
+    result['ndwi'] = ndwi
+
     return ndwi_mask, cloud_pct, result
 
 
@@ -358,7 +360,8 @@ def estimate_elevation_from_image(
     -------
     dict – same as estimate_elevation() plus key "seg_mask".
     """
-    seg_mask, cloud_pct, _ = segment_image(img_path)
+    seg_mask, cloud_pct, result = segment_image(img_path)
+    ndwi = result['ndwi']
 
     result = estimate_elevation(
         DEM, seg_mask,
@@ -367,6 +370,7 @@ def estimate_elevation_from_image(
         return_details=return_details,
     )
     result["seg_mask"] = seg_mask
+    result["ndwi"] = ndwi
     return result
 
 

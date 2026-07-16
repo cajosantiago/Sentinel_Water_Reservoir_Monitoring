@@ -140,6 +140,7 @@ def save_index_image(band_2d, idx_num, albufeira, date_str, ts_str, cc_tag, out_
     """Apply small-area filter, render and save one index image."""
     mago_colors = ["blue", "cyan", "green", "yellow", "red"]
     mago_cmap   = mcolors.LinearSegmentedColormap.from_list("mago", mago_colors)
+    mago_cmap.set_bad(color="black", alpha=1.0)
 
     label = INDEX_LABELS[idx_num]
     band  = band_2d.copy().astype(np.float32)
@@ -149,15 +150,15 @@ def save_index_image(band_2d, idx_num, albufeira, date_str, ts_str, cc_tag, out_
         print(f"    [{label}] — sem pixels válidos, ignorado.")
         return
 
-    # Remove small disconnected regions (Guilherme's filter)
-    valid_mask_img = np.isfinite(band)
-    binary = (valid_mask_img.astype(np.uint8)) * 255
-    n_lbl, lbl_cv, stats, _ = cv.connectedComponentsWithStats(binary, connectivity=8)
-    clean_mask = np.zeros(binary.shape, dtype=np.uint8)
-    for i in range(1, n_lbl):
-        if stats[i, cv.CC_STAT_AREA] >= min_area:
-            clean_mask[lbl_cv == i] = 1
-    band[clean_mask == 0] = np.nan
+    # # Remove small disconnected regions (Guilherme's filter)
+    # valid_mask_img = np.isfinite(band)
+    # binary = (valid_mask_img.astype(np.uint8)) * 255
+    # n_lbl, lbl_cv, stats, _ = cv.connectedComponentsWithStats(binary, connectivity=8)
+    # clean_mask = np.zeros(binary.shape, dtype=np.uint8)
+    # for i in range(1, n_lbl):
+    #     if stats[i, cv.CC_STAT_AREA] >= min_area:
+    #         clean_mask[lbl_cv == i] = 1
+    # band[clean_mask == 0] = np.nan
 
     valid_clean = band[np.isfinite(band)]
     if len(valid_clean) == 0:
@@ -171,21 +172,25 @@ def save_index_image(band_2d, idx_num, albufeira, date_str, ts_str, cc_tag, out_
         vmin = np.nanpercentile(valid_clean, 2)
         vmax = np.nanpercentile(valid_clean, 98)
 
-    fig, ax = plt.subplots(figsize=(8, 6))
-    im = ax.imshow(band, cmap=mago_cmap, vmin=vmin, vmax=vmax)
-    plt.colorbar(im, ax=ax, label=INDEX_PRETTY[idx_num])
-    ax.set_title(f"{albufeira} — {date_str}\n{INDEX_PRETTY[idx_num]}")
-    ax.axis("off")
+    # Save the numerical data
+    data_fname = os.path.join(out_dir, f"{ts_str}_{cc_tag}_{label}.npy")
+    np.save(data_fname, band)
 
-    fname = os.path.join(out_dir, f"{ts_str}_{cc_tag}_{label}.png")
-    plt.savefig(fname, dpi=120, bbox_inches="tight")
-    plt.close()
-    print(f"    → {os.path.basename(fname)}")
+    # fig, ax = plt.subplots(figsize=(8, 6))
+    # im = ax.imshow(band, cmap=mago_cmap, vmin=vmin, vmax=vmax)
+    # plt.colorbar(im, ax=ax, label=INDEX_PRETTY[idx_num])
+    # ax.set_title(f"{albufeira} — {date_str}\n{INDEX_PRETTY[idx_num]}")
+    # ax.axis("off")
 
-    #save band without colorbar
-    fname_nb = os.path.join(out_dir, f"{ts_str}_{cc_tag}_{label}_nb.png")
-    plt.imsave(fname_nb, band, cmap=mago_cmap, vmin=vmin, vmax=vmax)
-    print(f"    → {os.path.basename(fname_nb)}")
+    # fname = os.path.join(out_dir, f"{ts_str}_{cc_tag}_{label}.png")
+    # plt.savefig(fname, dpi=120, bbox_inches="tight")
+    # plt.close()
+    # print(f"    → {os.path.basename(fname)}")
+
+    # #save band without colorbar
+    # fname_nb = os.path.join(out_dir, f"{ts_str}_{cc_tag}_{label}_nb.png")
+    # plt.imsave(fname_nb, band, cmap=mago_cmap, vmin=vmin, vmax=vmax)
+    # print(f"    → {os.path.basename(fname_nb)}")
 
 
 def save_ndwi_image(ndwi, albufeira, date_str, ts_str, cc_tag, out_dir):
@@ -407,7 +412,7 @@ def main():
         print(f"  → OK ({n_water} px water)")
 
         if args.save_masks:
-            save_ndwi_image(ndwi, args.albufeira, date_str, ts_str, cc_tag, args.output_dir)
+            #save_ndwi_image(ndwi, args.albufeira, date_str, ts_str, cc_tag, args.output_dir)
             save_valid_mask_image(valid_mask, args.albufeira, date_str, ts_str, cc_tag, args.output_dir)
 
         for idx_num in INDICES_TO_COMPUTE:
