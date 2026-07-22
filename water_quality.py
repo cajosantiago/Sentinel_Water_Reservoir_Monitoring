@@ -251,7 +251,7 @@ def main():
     parser.add_argument(
         "--use-dem",
         type=bool,
-        default=False,
+        default=True,
         help="Use DEM to improve segmentation"
     )
     parser.add_argument(
